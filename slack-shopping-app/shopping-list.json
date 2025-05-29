@@ -1,0 +1,22 @@
+[
+  {
+    "name": "coffee",
+    "status": "Purchased",
+    "updatedBy": "<@UVCNZFN94>",
+    "updatedAt": "5/29/2025, 9:59:40 AM"
+  },
+  {
+    "name": "stuff",
+    "link": "www.stuff.com",
+    "status": "Needed",
+    "updatedBy": "<@UVCNZFN94>",
+    "updatedAt": "5/29/2025, 9:57:54 AM"
+  },
+  {
+    "name": "more stuff",
+    "link": "morestuff.com",
+    "status": "Needed",
+    "updatedBy": "<@UVCNZFN94>",
+    "updatedAt": "5/29/2025, 10:28:42 AM"
+  }
+]
