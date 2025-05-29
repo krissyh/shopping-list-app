@@ -105,33 +105,33 @@ function generateBlocks() {
               type: "mrkdwn",
               text: `*${item.name}* | ${item.link ? `<${item.link}|Link>` : "No link"} | ${formatDate(item.updatedAt)} | ${item.updatedBy} | ${item.status}`,
             },
-            accessory: {
-              type: "actions",
-              elements: [
-                item.status === "Needed"
-                  ? {
-                      type: "button",
-                      text: { type: "plain_text", text: "✅ Purchased" },
-                      style: "primary",
-                      value: `check_${index}`,
-                      action_id: `item_action_${index}`,
-                    }
-                  : {
-                      type: "button",
-                      text: { type: "plain_text", text: "🔄 Needed" },
-                      style: "primary",
-                      value: `uncheck_${index}`,
-                      action_id: `item_action_${index}`,
-                    },
-                {
-                  type: "button",
-                  text: { type: "plain_text", text: "❌ Remove" },
-                  style: "danger",
-                  value: `remove_${index}`,
-                  action_id: `item_action_${index}`,
-                },
-              ],
-            },
+          },
+          {
+            type: "actions",
+            elements: [
+              item.status === "Needed"
+                ? {
+                    type: "button",
+                    text: { type: "plain_text", text: "✅ Purchased" },
+                    style: "primary",
+                    value: `check_${index}`,
+                    action_id: `item_action_${index}`,
+                  }
+                : {
+                    type: "button",
+                    text: { type: "plain_text", text: "🔄 Needed" },
+                    style: "primary",
+                    value: `uncheck_${index}`,
+                    action_id: `item_action_${index}`,
+                  },
+              {
+                type: "button",
+                text: { type: "plain_text", text: "❌ Remove" },
+                style: "danger",
+                value: `remove_${index}`,
+                action_id: `item_action_${index}`,
+              },
+            ],
           },
         ])
     ),
