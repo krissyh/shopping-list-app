@@ -5,6 +5,7 @@ require("dotenv").config();
 
 const DATA_FILE = path.join(__dirname, "shopping-list.json");
 
+// Load/save shopping list from JSON file
 function loadShoppingList() {
   try {
     const data = fs.readFileSync(DATA_FILE, "utf8");
@@ -27,6 +28,9 @@ const app = new App({
 });
 
 let shoppingList = loadShoppingList();
+
+// Keep track of users who opened the Home tab
+const activeUsers = new Set();
 
 function formatDate(dateTime) {
   if (!dateTime) return "Unknown date";
@@ -114,8 +118,28 @@ function generateBlocks() {
   return blocks;
 }
 
+// Helper: Update Home tab for all active users
+async function updateAllHomeTabs(client) {
+  const blocks = generateBlocks();
+
+  for (const userId of activeUsers) {
+    try {
+      await client.views.publish({
+        user_id: userId,
+        view: {
+          type: "home",
+          callback_id: "home_view",
+          blocks,
+        },
+      });
+    } catch (err) {
+      console.error(`Failed to update home tab for ${userId}:`, err);
+    }
+  }
+}
+
 // Slash command: /shopping
-app.command("/shopping", async ({ command, ack, respond }) => {
+app.command("/shopping", async ({ command, ack, respond, client }) => {
   await ack();
 
   const [action, ...itemParts] = command.text.trim().split(" ");
@@ -159,19 +183,8 @@ app.command("/shopping", async ({ command, ack, respond }) => {
       await respond("Usage: `/shopping [add|check|uncheck|remove|list] [item name]`");
   }
 
-  // Publish updated home tab
-  try {
-    await app.client.views.publish({
-      user_id: command.user_id,
-      view: {
-        type: "home",
-        callback_id: "home_view",
-        blocks: generateBlocks(),
-      },
-    });
-  } catch (err) {
-    console.error("Error publishing home tab:", err);
-  }
+  // Publish updated home tab to all users
+  await updateAllHomeTabs(client);
 });
 
 // Slash command: /shopping-ui
@@ -221,9 +234,8 @@ app.action(/item_action_\d+/, async ({ ack, body, action, respond, client }) => 
 
   saveShoppingList(shoppingList);
 
+  // Update message with new list
   const blocks = generateBlocks();
-
-  // Update the message with new list
   await respond({
     replace_original: true,
     blocks,
@@ -240,19 +252,8 @@ app.action(/item_action_\d+/, async ({ ack, body, action, respond, client }) => 
     });
   }
 
-  // Update home tab for the user
-  try {
-    await client.views.publish({
-      user_id: body.user.id,
-      view: {
-        type: "home",
-        callback_id: "home_view",
-        blocks,
-      },
-    });
-  } catch (err) {
-    console.error("Error publishing home tab:", err);
-  }
+  // Update home tab for all users
+  await updateAllHomeTabs(client);
 });
 
 app.action("open_add_item_modal", async ({ ack, body, client }) => {
@@ -311,18 +312,13 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
     text: `Added *${itemName}* to the shopping list.`,
   });
 
-  const blocks = generateBlocks();
-  await client.views.publish({
-    user_id: body.user.id,
-    view: {
-      type: "home",
-      callback_id: "home_view",
-      blocks,
-    },
-  });
+  // Update home tab for all users
+  await updateAllHomeTabs(client);
 });
 
 app.event("app_home_opened", async ({ event, client }) => {
+  activeUsers.add(event.user);
+
   const blocks = generateBlocks();
   await client.views.publish({
     user_id: event.user,
@@ -336,5 +332,5 @@ app.event("app_home_opened", async ({ event, client }) => {
 
 (async () => {
   await app.start();
-  console.log("⚡️ Slack Shopping List App is running");
+  console.log("⚡️ Slack app is running!");
 })();
