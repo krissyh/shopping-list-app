@@ -126,12 +126,13 @@ app.command("/shopping-ui", async ({ command, ack, respond }) => {
 });
 
 // Overflow menu actions
-app.action("item_action", async ({ ack, body, action, respond }) => {
+app.action(/item_action_\d+/, async ({ ack, body, action, respond }) => {
   await ack();
 
   const user = `<@${body.user.id}>`;
   const timestamp = new Date().toLocaleString();
-  const [actionType, indexStr] = action.selected_option.value.split("_");
+
+  const [actionType, indexStr] = action.value.split("_");
   const index = parseInt(indexStr);
 
   if (isNaN(index) || !shoppingList[index]) {
@@ -139,7 +140,7 @@ app.action("item_action", async ({ ack, body, action, respond }) => {
     return;
   }
 
-  const item = shoppingList[index];
+  let item = shoppingList[index];
   let message;
 
   switch (actionType) {
