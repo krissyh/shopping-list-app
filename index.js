@@ -28,47 +28,113 @@ const app = new App({
 
 let shoppingList = loadShoppingList();
 
-function formatItemRow(item) {
-  const name = `*${item.name}*`;
-  const link = item.link ? `<${item.link}|🔗>` : "—";
-  const date = item.updatedAt || "—";
-  const who = item.updatedBy || "—";
-  const status = item.status || "🛒";
-  return `• ${name}   ${link}   📅 ${date}   👤 ${who}   ${status}`;
+function formatList() {
+  return shoppingList.map(item => `• *${item.name}* — ${item.status}${item.link ? ` <${item.link}|Link>` : ""} ${item.updatedAt ? `(updated ${item.updatedAt} by ${item.updatedBy})` : ""}`).join("\n") || "No items on the list.";
 }
 
-function buildHomeView(list) {
-  const blocks = [
+function formatDate(dateTime) {
+  return new Date(dateTime).toLocaleDateString();
+}
+
+// Slash command: /shopping
+app.command("/shopping", async ({ command, ack, respond }) => {
+  await ack();
+
+  const [action, ...itemParts] = command.text.trim().split(" ");
+  const itemName = itemParts.join(" ");
+  const user = `<@${command.user_id}>`;
+  const timestamp = new Date().toISOString();
+
+  switch (action) {
+    case "add":
+      shoppingList.push({ name: itemName, status: "Needed", updatedBy: user, updatedAt: timestamp });
+      saveShoppingList(shoppingList);
+      await respond(`Added *${itemName}* to the shopping list.`);
+      break;
+    case "check":
+      shoppingList = shoppingList.map(item =>
+        item.name === itemName ? { ...item, status: "Purchased", updatedBy: user, updatedAt: timestamp } : item
+      );
+      saveShoppingList(shoppingList);
+      await respond(`Marked *${itemName}* as purchased.`);
+      break;
+    case "uncheck":
+      shoppingList = shoppingList.map(item =>
+        item.name === itemName ? { ...item, status: "Needed", updatedBy: user, updatedAt: timestamp } : item
+      );
+      saveShoppingList(shoppingList);
+      await respond(`Marked *${itemName}* as needed again.`);
+      break;
+    case "remove":
+      shoppingList = shoppingList.filter(item => item.name !== itemName);
+      saveShoppingList(shoppingList);
+      await respond(`Removed *${itemName}* from the list.`);
+      break;
+    case "list":
+      await respond(`🛒 *Shopping List:*
+${formatList()}`);
+      break;
+    default:
+      await respond("Usage: `/shopping [add|check|uncheck|remove|list] [item name]`");
+  }
+});
+
+// Slash command: /shopping-ui
+app.command("/shopping-ui", async ({ command, ack, respond }) => {
+  await ack();
+
+  const blocks = generateBlocks();
+  await respond({ blocks, text: "Here’s the shopping list:" });
+});
+
+function generateBlocks() {
+  return [
     {
       type: "header",
-      text: { type: "plain_text", text: "🛍️ Your Shopping List" },
+      text: { type: "plain_text", text: "🛒 Shopping List" },
     },
-    {
-      type: "context",
-      elements: [{ type: "mrkdwn", text: "*What*   🔗 *Link*   📅 *When*   👤 *Who*   🏷️ *Status*" }],
-    },
-    ...(list.length === 0
+    ...(shoppingList.length === 0
       ? [{
           type: "section",
-          text: { type: "mrkdwn", text: "_The list is currently empty._" },
+          text: { type: "mrkdwn", text: "The shopping list is empty." },
         }]
-      : list.map((item, index) => ({
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: formatItemRow(item),
+      : shoppingList.flatMap((item, index) => [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `*${item.name}* | ${item.link ? `<${item.link}|Link>` : "No link"} | ${formatDate(item.updatedAt)} | ${item.updatedBy} | ${item.status}`,
+            },
+            accessory: {
+              type: "actions",
+              elements: [
+                item.status === "Needed"
+                  ? {
+                      type: "button",
+                      text: { type: "plain_text", text: "✅ Purchased" },
+                      style: "primary",
+                      value: `check_${index}`,
+                      action_id: `item_action_${index}`,
+                    }
+                  : {
+                      type: "button",
+                      text: { type: "plain_text", text: "🔄 Needed" },
+                      style: "primary",
+                      value: `uncheck_${index}`,
+                      action_id: `item_action_${index}`,
+                    },
+                {
+                  type: "button",
+                  text: { type: "plain_text", text: "❌ Remove" },
+                  style: "danger",
+                  value: `remove_${index}`,
+                  action_id: `item_action_${index}`,
+                },
+              ],
+            },
           },
-          accessory: {
-            type: "overflow",
-            options: [
-              ...(item.status === "🛒 Needed"
-                ? [{ text: { type: "plain_text", text: "✅ Mark as Purchased" }, value: `check_${index}` }]
-                : [{ text: { type: "plain_text", text: "🔄 Mark as Needed" }, value: `uncheck_${index}` }]),
-              { text: { type: "plain_text", text: "❌ Remove Item" }, value: `remove_${index}` },
-            ],
-            action_id: "item_action",
-          },
-        }))),
+        ])
+    ),
     {
       type: "actions",
       elements: [
@@ -80,112 +146,62 @@ function buildHomeView(list) {
       ],
     },
   ];
-
-  return {
-    type: "home",
-    callback_id: "home_view",
-    blocks,
-  };
 }
 
-app.event("app_home_opened", async ({ event, client }) => {
-  await client.views.publish({
-    user_id: event.user,
-    view: buildHomeView(shoppingList),
-  });
-});
-
-app.command("/shopping", async ({ command, ack, respond }) => {
-  await ack();
-  const [action, ...itemParts] = command.text.trim().split(" ");
-  const itemName = itemParts.join(" ");
-  const user = `<@${command.user_id}>`;
-  const timestamp = new Date().toLocaleDateString();
-
-  switch (action) {
-    case "add":
-      shoppingList.push({ name: itemName, status: "🛒 Needed", updatedBy: user, updatedAt: timestamp });
-      saveShoppingList(shoppingList);
-      await respond(`Added *${itemName}* to the shopping list.`);
-      break;
-    case "check":
-      shoppingList = shoppingList.map(item =>
-        item.name === itemName ? { ...item, status: "✅ Purchased", updatedBy: user, updatedAt: timestamp } : item
-      );
-      saveShoppingList(shoppingList);
-      await respond(`Marked *${itemName}* as purchased.`);
-      break;
-    case "uncheck":
-      shoppingList = shoppingList.map(item =>
-        item.name === itemName ? { ...item, status: "🛒 Needed", updatedBy: user, updatedAt: timestamp } : item
-      );
-      saveShoppingList(shoppingList);
-      await respond(`Marked *${itemName}* as needed.`);
-      break;
-    case "remove":
-      shoppingList = shoppingList.filter(item => item.name !== itemName);
-      saveShoppingList(shoppingList);
-      await respond(`Removed *${itemName}* from the list.`);
-      break;
-    case "list":
-      await respond(`🛒 *Shopping List:*
-${shoppingList.map(formatItemRow).join("\n")}`);
-      break;
-    default:
-      await respond("Usage: `/shopping [add|check|uncheck|remove|list] [item name]`");
-  }
-});
-
-app.action("item_action", async ({ ack, body, action, client }) => {
+app.action(/item_action_\d+/, async ({ ack, body, action, respond }) => {
   await ack();
 
   const user = `<@${body.user.id}>`;
-  const timestamp = new Date().toLocaleDateString();
-  const [actionType, indexStr] = action.selected_option.value.split("_");
+  const timestamp = new Date().toISOString();
+  const [actionType, indexStr] = action.value.split("_");
   const index = parseInt(indexStr);
 
-  if (isNaN(index) || !shoppingList[index]) return;
+  if (isNaN(index) || !shoppingList[index]) {
+    await respond({ text: "Invalid item index.", replace_original: false });
+    return;
+  }
 
   let item = shoppingList[index];
   let message;
 
   switch (actionType) {
     case "check":
-      item.status = "✅ Purchased";
-      message = `Marked *${item.name}* as purchased.`;
+      item.status = "Purchased";
+      item.updatedBy = user;
+      item.updatedAt = timestamp;
+      message = `✅ Marked *${item.name}* as purchased.`;
       break;
     case "uncheck":
-      item.status = "🛒 Needed";
-      message = `Marked *${item.name}* as needed.`;
+      item.status = "Needed";
+      item.updatedBy = user;
+      item.updatedAt = timestamp;
+      message = `🔄 Marked *${item.name}* as needed again.`;
       break;
     case "remove":
       shoppingList.splice(index, 1);
-      message = `Removed *${item.name}*.`;
+      message = `❌ Removed *${item.name}* from the list.`;
       break;
+    default:
+      message = "Unknown action.";
   }
 
-  item.updatedBy = user;
-  item.updatedAt = timestamp;
   saveShoppingList(shoppingList);
-
-  try {
-    await client.views.publish({
-      user_id: body.user.id,
-      view: buildHomeView(shoppingList),
-    });
-  } catch (err) {
-    console.error("Error refreshing Home tab:", err);
-  }
-
-  await client.chat.postEphemeral({
-    channel: body.channel.id,
-    user: body.user.id,
-    text: message,
+  const blocks = generateBlocks();
+  await app.client.views.publish({
+    user_id: body.user.id,
+    view: {
+      type: "home",
+      callback_id: "home_view",
+      blocks,
+    },
   });
+
+  await respond({ response_type: "ephemeral", text: message });
 });
 
 app.action("open_add_item_modal", async ({ ack, body, client }) => {
   await ack();
+
   await client.views.open({
     trigger_id: body.trigger_id,
     view: {
@@ -215,30 +231,54 @@ app.action("open_add_item_modal", async ({ ack, body, client }) => {
 
 app.view("add_item_submit", async ({ ack, body, view, client }) => {
   await ack();
+
   const itemName = view.state.values.item_name.input.value.trim();
   const itemLink = view.state.values.item_link?.input?.value?.trim();
   const user = `<@${body.user.id}>`;
-  const timestamp = new Date().toLocaleDateString();
+  const timestamp = new Date().toISOString();
 
   if (!itemName) return;
 
   shoppingList.push({
     name: itemName,
     link: itemLink || null,
-    status: "🛒 Needed",
+    status: "Needed",
     updatedBy: user,
     updatedAt: timestamp,
   });
 
   saveShoppingList(shoppingList);
 
+  await client.chat.postEphemeral({
+    channel: body.user.id,
+    user: body.user.id,
+    text: `Added *${itemName}* to the shopping list.`,
+  });
+
+  const blocks = generateBlocks();
   await client.views.publish({
     user_id: body.user.id,
-    view: buildHomeView(shoppingList),
+    view: {
+      type: "home",
+      callback_id: "home_view",
+      blocks,
+    },
+  });
+});
+
+app.event("app_home_opened", async ({ event, client }) => {
+  const blocks = generateBlocks();
+  await client.views.publish({
+    user_id: event.user,
+    view: {
+      type: "home",
+      callback_id: "home_view",
+      blocks,
+    },
   });
 });
 
 (async () => {
   await app.start();
-  console.log("⚡️ Slack Shopping List App is running!");
+  console.log("⚡️ Slack Shopping List App is running");
 })();
