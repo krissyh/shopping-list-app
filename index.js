@@ -9,7 +9,7 @@ function loadShoppingList() {
   try {
     const data = fs.readFileSync(DATA_FILE, "utf8");
     return JSON.parse(data);
-  } catch {
+  } catch (err) {
     return [];
   }
 }
@@ -29,8 +29,7 @@ const app = new App({
 let shoppingList = loadShoppingList();
 
 function formatDate(dateTime) {
-  if (!dateTime) return "";
-  return new Date(dateTime).toLocaleDateString();
+  return dateTime ? new Date(dateTime).toLocaleDateString() : "";
 }
 
 function generateBlocks() {
@@ -56,38 +55,35 @@ function generateBlocks() {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*${item.name}*${item.link ? ` <${item.link}|Link>` : ""}  \nStatus: *${item.status}*  ${updatedText}`,
+          text: `*${item.name}*${item.link ? ` <${item.link}|Link>` : ""}\nStatus: *${item.status}* ${updatedText}`,
+        },
+        accessory: {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              text: { type: "plain_text", text: "✔️", emoji: true },
+              style: item.status === "Purchased" ? "primary" : undefined, // green if Purchased, grey otherwise
+              value: `${item.status === "Needed" ? "check" : "uncheck"}_${index}`,
+              action_id: `item_action_check_${index}`,
+            },
+            {
+              type: "overflow",
+              options: [
+                {
+                  text: { type: "plain_text", text: "Remove", emoji: true },
+                  value: `remove_${index}`,
+                },
+              ],
+              action_id: `item_action_overflow_${index}`,
+            },
+          ],
         },
       });
 
-      // Actions block with buttons on the same line
-      blocks.push({
-        type: "actions",
-        elements: [
-          item.status === "Needed"
-            ? {
-                type: "button",
-                text: { type: "plain_text", text: "✔️", emoji: true },
-                style: "primary", // green button
-                value: `check_${index}`,
-                action_id: `item_action_check_${index}`,
-              }
-            : {
-                type: "button",
-                text: { type: "plain_text", text: "✔️", emoji: true },
-                // no style (grey button)
-                value: `uncheck_${index}`,
-                action_id: `item_action_uncheck_${index}`,
-              },
-          {
-            type: "button",
-            text: { type: "plain_text", text: "❌", emoji: true },
-            style: "danger", // red button
-            value: `remove_${index}`,
-            action_id: `item_action_remove_${index}`,
-          },
-        ],
-      });
+      if (index < shoppingList.length - 1) {
+        blocks.push({ type: "divider" });
+      }
     });
   }
 
@@ -116,15 +112,10 @@ app.command("/shopping", async ({ command, ack, respond }) => {
 
   switch (action) {
     case "add":
-      if (!itemName) {
-        await respond("Please specify an item name to add.");
-        return;
-      }
       shoppingList.push({ name: itemName, status: "Needed", updatedBy: user, updatedAt: timestamp });
       saveShoppingList(shoppingList);
       await respond(`Added *${itemName}* to the shopping list.`);
       break;
-
     case "check":
       shoppingList = shoppingList.map(item =>
         item.name === itemName ? { ...item, status: "Purchased", updatedBy: user, updatedAt: timestamp } : item
@@ -132,7 +123,6 @@ app.command("/shopping", async ({ command, ack, respond }) => {
       saveShoppingList(shoppingList);
       await respond(`Marked *${itemName}* as purchased.`);
       break;
-
     case "uncheck":
       shoppingList = shoppingList.map(item =>
         item.name === itemName ? { ...item, status: "Needed", updatedBy: user, updatedAt: timestamp } : item
@@ -140,17 +130,14 @@ app.command("/shopping", async ({ command, ack, respond }) => {
       saveShoppingList(shoppingList);
       await respond(`Marked *${itemName}* as needed again.`);
       break;
-
     case "remove":
       shoppingList = shoppingList.filter(item => item.name !== itemName);
       saveShoppingList(shoppingList);
       await respond(`Removed *${itemName}* from the list.`);
       break;
-
     case "list":
-      await respond(`🛒 *Shopping List:*\n${shoppingList.length === 0 ? "No items on the list." : shoppingList.map(item => `• *${item.name}* — ${item.status}`).join("\n")}`);
+      await respond(`🛒 *Shopping List:*\n${shoppingList.length ? shoppingList.map(item => `• *${item.name}* — ${item.status}`).join("\n") : "No items on the list."}`);
       break;
-
     default:
       await respond("Usage: `/shopping [add|check|uncheck|remove|list] [item name]`");
   }
@@ -164,16 +151,15 @@ app.command("/shopping-ui", async ({ command, ack, respond }) => {
   await respond({ blocks, text: "Here’s the shopping list:" });
 });
 
-// Handle item button actions
-app.action(/item_action_(check|uncheck|remove)_\d+/, async ({ ack, body, action, respond, client }) => {
+// Check/uncheck button handler
+app.action(/item_action_check_\d+/, async ({ ack, body, action, respond }) => {
   await ack();
 
   const user = `<@${body.user.id}>`;
   const timestamp = new Date().toISOString();
 
-  // action.value format: action_index
   const [actionType, indexStr] = action.value.split("_");
-  const index = parseInt(indexStr, 10);
+  const index = parseInt(indexStr);
 
   if (isNaN(index) || !shoppingList[index]) {
     await respond({ text: "Invalid item index.", replace_original: false });
@@ -183,62 +169,60 @@ app.action(/item_action_(check|uncheck|remove)_\d+/, async ({ ack, body, action,
   let item = shoppingList[index];
   let message;
 
-  switch (actionType) {
-    case "check":
-      item.status = "Purchased";
-      item.updatedBy = user;
-      item.updatedAt = timestamp;
-      message = `✅ Marked *${item.name}* as purchased.`;
-      break;
-
-    case "uncheck":
-      item.status = "Needed";
-      item.updatedBy = user;
-      item.updatedAt = timestamp;
-      message = `🔄 Marked *${item.name}* as needed again.`;
-      break;
-
-    case "remove":
-      shoppingList.splice(index, 1);
-      message = `❌ Removed *${item.name}* from the list.`;
-      break;
-
-    default:
-      message = "Unknown action.";
+  if (actionType === "check") {
+    item.status = "Purchased";
+    message = `✅ Marked *${item.name}* as purchased.`;
+  } else if (actionType === "uncheck") {
+    item.status = "Needed";
+    message = `🔄 Marked *${item.name}* as needed again.`;
+  } else {
+    message = "Unknown action.";
   }
+
+  item.updatedBy = user;
+  item.updatedAt = timestamp;
 
   saveShoppingList(shoppingList);
 
-  // Update the home tab view for the user immediately
-  try {
-    await client.views.publish({
-      user_id: body.user.id,
-      view: {
-        type: "home",
-        callback_id: "home_view",
-        blocks: generateBlocks(),
-      },
-    });
-  } catch (error) {
-    console.error("Error publishing home view:", error);
-  }
+  const blocks = generateBlocks();
 
-  // Update the message with new list view (replace original)
   await respond({
     replace_original: true,
-    blocks: generateBlocks(),
+    blocks,
     text: "Here’s the updated shopping list.",
   });
 
-  // Send ephemeral feedback
-  await client.chat.postEphemeral({
-    channel: body.channel.id,
-    user: body.user.id,
-    text: message,
-  });
+  await respond({ response_type: "ephemeral", text: message });
 });
 
-// Open modal to add item
+// Overflow menu handler (remove)
+app.action(/item_action_overflow_\d+/, async ({ ack, body, action, respond }) => {
+  await ack();
+
+  const selected = action.selected_option.value; // e.g., "remove_1"
+  const [actionType, indexStr] = selected.split("_");
+  const index = parseInt(indexStr);
+
+  if (actionType !== "remove" || isNaN(index) || !shoppingList[index]) {
+    await respond({ text: "Invalid action or item.", replace_original: false });
+    return;
+  }
+
+  const removedItem = shoppingList.splice(index, 1)[0];
+  saveShoppingList(shoppingList);
+
+  const blocks = generateBlocks();
+
+  await respond({
+    replace_original: true,
+    blocks,
+    text: "Here’s the updated shopping list.",
+  });
+
+  await respond({ response_type: "ephemeral", text: `❌ Removed *${removedItem.name}* from the list.` });
+});
+
+// Add Item Modal open
 app.action("open_add_item_modal", async ({ ack, body, client }) => {
   await ack();
 
@@ -269,12 +253,12 @@ app.action("open_add_item_modal", async ({ ack, body, client }) => {
   });
 });
 
-// Handle modal submission to add item
+// Modal submission handler
 app.view("add_item_submit", async ({ ack, body, view, client }) => {
   await ack();
 
   const itemName = view.state.values.item_name.input.value.trim();
-  const itemLink = view.state.values.item_link?.input?.value?.trim() || null;
+  const itemLink = view.state.values.item_link?.input?.value?.trim();
   const user = `<@${body.user.id}>`;
   const timestamp = new Date().toISOString();
 
@@ -282,7 +266,7 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
 
   shoppingList.push({
     name: itemName,
-    link: itemLink,
+    link: itemLink || null,
     status: "Needed",
     updatedBy: user,
     updatedAt: timestamp,
@@ -290,42 +274,36 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
 
   saveShoppingList(shoppingList);
 
-  // Update user's home tab view immediately
-  try {
-    await client.views.publish({
-      user_id: body.user.id,
-      view: {
-        type: "home",
-        callback_id: "home_view",
-        blocks: generateBlocks(),
-      },
-    });
-  } catch (error) {
-    console.error("Error publishing home view:", error);
-  }
-
-  // Send ephemeral confirmation in DM
   await client.chat.postEphemeral({
     channel: body.user.id,
     user: body.user.id,
     text: `Added *${itemName}* to the shopping list.`,
   });
+
+  const blocks = generateBlocks();
+
+  await client.views.publish({
+    user_id: body.user.id,
+    view: {
+      type: "home",
+      callback_id: "home_view",
+      blocks,
+    },
+  });
 });
 
-// Update home tab on app_home_opened event
+// Home tab auto update
 app.event("app_home_opened", async ({ event, client }) => {
-  try {
-    await client.views.publish({
-      user_id: event.user,
-      view: {
-        type: "home",
-        callback_id: "home_view",
-        blocks: generateBlocks(),
-      },
-    });
-  } catch (error) {
-    console.error("Error publishing home view:", error);
-  }
+  const blocks = generateBlocks();
+
+  await client.views.publish({
+    user_id: event.user,
+    view: {
+      type: "home",
+      callback_id: "home_view",
+      blocks,
+    },
+  });
 });
 
 (async () => {
