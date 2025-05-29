@@ -9,7 +9,7 @@ function loadShoppingList() {
   try {
     const data = fs.readFileSync(DATA_FILE, "utf8");
     return JSON.parse(data);
-  } catch (err) {
+  } catch {
     return [];
   }
 }
@@ -29,33 +29,11 @@ const app = new App({
 let shoppingList = loadShoppingList();
 
 function formatDate(dateTime) {
-  return dateTime ? new Date(dateTime).toLocaleDateString() : "N/A";
+  if (!dateTime) return "";
+  return new Date(dateTime).toLocaleDateString();
 }
 
 function generateBlocks() {
-  if (shoppingList.length === 0) {
-    return [
-      {
-        type: "header",
-        text: { type: "plain_text", text: "🛒 Shopping List" },
-      },
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: "The shopping list is empty." },
-      },
-      {
-        type: "actions",
-        elements: [
-          {
-            type: "button",
-            text: { type: "plain_text", text: "➕ Add Item" },
-            action_id: "open_add_item_modal",
-          },
-        ],
-      },
-    ];
-  }
-
   const blocks = [
     {
       type: "header",
@@ -63,53 +41,55 @@ function generateBlocks() {
     },
   ];
 
-  shoppingList.forEach((item, index) => {
-    // Compose the line with name, optional link, updated info, status
-    const nameText = `*${item.name}*${item.link ? ` <${item.link}|Link>` : ""}`;
-    const updatedText = item.updatedAt && item.updatedBy ? `(updated ${formatDate(item.updatedAt)} by ${item.updatedBy})` : "";
-    const statusText = `Status: ${item.status}`;
-
+  if (shoppingList.length === 0) {
     blocks.push({
       type: "section",
-      fields: [
-        {
+      text: { type: "mrkdwn", text: "The shopping list is empty." },
+    });
+  } else {
+    shoppingList.forEach((item, index) => {
+      const updatedText = item.updatedAt && item.updatedBy
+        ? `(updated ${formatDate(item.updatedAt)} by ${item.updatedBy})`
+        : "";
+
+      blocks.push({
+        type: "section",
+        text: {
           type: "mrkdwn",
-          text: `${nameText}\n${updatedText}`,
+          text: `*${item.name}*${item.link ? ` <${item.link}|Link>` : ""}  \nStatus: *${item.status}*  ${updatedText}`,
         },
-        {
-          type: "mrkdwn",
-          text: statusText,
-        },
-      ],
-      accessory: {
+      });
+
+      // Actions block with buttons on the same line
+      blocks.push({
         type: "actions",
         elements: [
           item.status === "Needed"
             ? {
                 type: "button",
                 text: { type: "plain_text", text: "✔️", emoji: true },
-                style: "primary", // blue-ish button for 'Needed'
+                style: "primary", // green button
                 value: `check_${index}`,
                 action_id: `item_action_check_${index}`,
               }
             : {
                 type: "button",
                 text: { type: "plain_text", text: "✔️", emoji: true },
-                // no style = grey button for 'Purchased'
+                // no style (grey button)
                 value: `uncheck_${index}`,
                 action_id: `item_action_uncheck_${index}`,
               },
           {
             type: "button",
             text: { type: "plain_text", text: "❌", emoji: true },
-            style: "danger",
+            style: "danger", // red button
             value: `remove_${index}`,
             action_id: `item_action_remove_${index}`,
           },
         ],
-      },
+      });
     });
-  });
+  }
 
   blocks.push({
     type: "actions",
@@ -137,13 +117,14 @@ app.command("/shopping", async ({ command, ack, respond }) => {
   switch (action) {
     case "add":
       if (!itemName) {
-        await respond("Please specify an item to add.");
+        await respond("Please specify an item name to add.");
         return;
       }
       shoppingList.push({ name: itemName, status: "Needed", updatedBy: user, updatedAt: timestamp });
       saveShoppingList(shoppingList);
       await respond(`Added *${itemName}* to the shopping list.`);
       break;
+
     case "check":
       shoppingList = shoppingList.map(item =>
         item.name === itemName ? { ...item, status: "Purchased", updatedBy: user, updatedAt: timestamp } : item
@@ -151,6 +132,7 @@ app.command("/shopping", async ({ command, ack, respond }) => {
       saveShoppingList(shoppingList);
       await respond(`Marked *${itemName}* as purchased.`);
       break;
+
     case "uncheck":
       shoppingList = shoppingList.map(item =>
         item.name === itemName ? { ...item, status: "Needed", updatedBy: user, updatedAt: timestamp } : item
@@ -158,17 +140,17 @@ app.command("/shopping", async ({ command, ack, respond }) => {
       saveShoppingList(shoppingList);
       await respond(`Marked *${itemName}* as needed again.`);
       break;
+
     case "remove":
       shoppingList = shoppingList.filter(item => item.name !== itemName);
       saveShoppingList(shoppingList);
       await respond(`Removed *${itemName}* from the list.`);
       break;
+
     case "list":
-      const lines = shoppingList.length
-        ? shoppingList.map(item => `• *${item.name}* — ${item.status}`).join("\n")
-        : "No items on the list.";
-      await respond(`🛒 *Shopping List:*\n${lines}`);
+      await respond(`🛒 *Shopping List:*\n${shoppingList.length === 0 ? "No items on the list." : shoppingList.map(item => `• *${item.name}* — ${item.status}`).join("\n")}`);
       break;
+
     default:
       await respond("Usage: `/shopping [add|check|uncheck|remove|list] [item name]`");
   }
@@ -182,21 +164,19 @@ app.command("/shopping-ui", async ({ command, ack, respond }) => {
   await respond({ blocks, text: "Here’s the shopping list:" });
 });
 
-app.action(/item_action_(check|uncheck|remove)_\d+/, async ({ ack, body, action, client }) => {
+// Handle item button actions
+app.action(/item_action_(check|uncheck|remove)_\d+/, async ({ ack, body, action, respond, client }) => {
   await ack();
 
   const user = `<@${body.user.id}>`;
   const timestamp = new Date().toISOString();
 
+  // action.value format: action_index
   const [actionType, indexStr] = action.value.split("_");
   const index = parseInt(indexStr, 10);
 
   if (isNaN(index) || !shoppingList[index]) {
-    await client.chat.postEphemeral({
-      channel: body.user.id,
-      user: body.user.id,
-      text: "Invalid item index.",
-    });
+    await respond({ text: "Invalid item index.", replace_original: false });
     return;
   }
 
@@ -210,41 +190,55 @@ app.action(/item_action_(check|uncheck|remove)_\d+/, async ({ ack, body, action,
       item.updatedAt = timestamp;
       message = `✅ Marked *${item.name}* as purchased.`;
       break;
+
     case "uncheck":
       item.status = "Needed";
       item.updatedBy = user;
       item.updatedAt = timestamp;
       message = `🔄 Marked *${item.name}* as needed again.`;
       break;
+
     case "remove":
       shoppingList.splice(index, 1);
       message = `❌ Removed *${item.name}* from the list.`;
       break;
+
     default:
       message = "Unknown action.";
   }
 
   saveShoppingList(shoppingList);
 
-  // Update the Home tab for the user who clicked
-  const blocks = generateBlocks();
-  await client.views.publish({
-    user_id: body.user.id,
-    view: {
-      type: "home",
-      callback_id: "home_view",
-      blocks,
-    },
+  // Update the home tab view for the user immediately
+  try {
+    await client.views.publish({
+      user_id: body.user.id,
+      view: {
+        type: "home",
+        callback_id: "home_view",
+        blocks: generateBlocks(),
+      },
+    });
+  } catch (error) {
+    console.error("Error publishing home view:", error);
+  }
+
+  // Update the message with new list view (replace original)
+  await respond({
+    replace_original: true,
+    blocks: generateBlocks(),
+    text: "Here’s the updated shopping list.",
   });
 
-  // Respond to the action with an ephemeral confirmation message
+  // Send ephemeral feedback
   await client.chat.postEphemeral({
-    channel: body.user.id,
+    channel: body.channel.id,
     user: body.user.id,
     text: message,
   });
 });
 
+// Open modal to add item
 app.action("open_add_item_modal", async ({ ack, body, client }) => {
   await ack();
 
@@ -275,11 +269,12 @@ app.action("open_add_item_modal", async ({ ack, body, client }) => {
   });
 });
 
+// Handle modal submission to add item
 app.view("add_item_submit", async ({ ack, body, view, client }) => {
   await ack();
 
   const itemName = view.state.values.item_name.input.value.trim();
-  const itemLink = view.state.values.item_link?.input?.value?.trim();
+  const itemLink = view.state.values.item_link?.input?.value?.trim() || null;
   const user = `<@${body.user.id}>`;
   const timestamp = new Date().toISOString();
 
@@ -287,7 +282,7 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
 
   shoppingList.push({
     name: itemName,
-    link: itemLink || null,
+    link: itemLink,
     status: "Needed",
     updatedBy: user,
     updatedAt: timestamp,
@@ -295,17 +290,21 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
 
   saveShoppingList(shoppingList);
 
-  // Update Home tab for the user after adding
-  const blocks = generateBlocks();
-  await client.views.publish({
-    user_id: body.user.id,
-    view: {
-      type: "home",
-      callback_id: "home_view",
-      blocks,
-    },
-  });
+  // Update user's home tab view immediately
+  try {
+    await client.views.publish({
+      user_id: body.user.id,
+      view: {
+        type: "home",
+        callback_id: "home_view",
+        blocks: generateBlocks(),
+      },
+    });
+  } catch (error) {
+    console.error("Error publishing home view:", error);
+  }
 
+  // Send ephemeral confirmation in DM
   await client.chat.postEphemeral({
     channel: body.user.id,
     user: body.user.id,
@@ -313,16 +312,20 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
   });
 });
 
+// Update home tab on app_home_opened event
 app.event("app_home_opened", async ({ event, client }) => {
-  const blocks = generateBlocks();
-  await client.views.publish({
-    user_id: event.user,
-    view: {
-      type: "home",
-      callback_id: "home_view",
-      blocks,
-    },
-  });
+  try {
+    await client.views.publish({
+      user_id: event.user,
+      view: {
+        type: "home",
+        callback_id: "home_view",
+        blocks: generateBlocks(),
+      },
+    });
+  } catch (error) {
+    console.error("Error publishing home view:", error);
+  }
 });
 
 (async () => {
