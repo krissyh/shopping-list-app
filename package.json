@@ -1,13 +1,17 @@
 {
-  "name": "slack-shopping-list",
+  "name": "slack-shopping-app",
   "version": "1.0.0",
   "main": "index.js",
-  "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
+"start": "node index.js"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
   "dependencies": {
-    "@slack/bolt": "^3.12.2",
-    "dotenv": "^16.5.0",
-      }
+    "@slack/bolt": "^4.4.0",
+    "dotenv": "^16.5.0"
+  }
 }
