@@ -232,24 +232,28 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
 
 // Home tab view
 app.event("app_home_opened", async ({ event, client }) => {
+  const headerRow = "*Item* | *Link* | *Date* | *Who* | *Status*";
+
+  const itemRows = shoppingList.map(item => {
+    const dateOnly = item.updatedAt
+      ? new Date(item.updatedAt).toLocaleDateString()
+      : "—";
+    const link = item.link ? `<${item.link}|Link>` : "—";
+    const who = item.updatedBy || "—";
+    const status = item.status || "—";
+    const name = item.name || "—";
+
+    return `${name} | ${link} | ${dateOnly} | ${who} | ${status}`;
+  });
+
   const blocks = [
     {
-      type: "header",
-      text: { type: "plain_text", text: "🛒 Shopping List" },
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*🛒 Shopping List*\n\n" + [headerRow, ...itemRows].join("\n"),
+      },
     },
-    ...(shoppingList.length === 0
-      ? [{
-          type: "section",
-          text: { type: "mrkdwn", text: "The shopping list is empty." },
-        }]
-      : shoppingList.map((item) => ({
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `*${item.name}* — ${item.status} ${item.link ? `<${item.link}|Link>` : ""} ${item.updatedAt ? `(updated ${item.updatedAt} by ${item.updatedBy})` : ""}`,
-          },
-        }))
-    ),
     {
       type: "actions",
       elements: [
