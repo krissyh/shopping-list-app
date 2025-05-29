@@ -5,17 +5,16 @@ require("dotenv").config();
 
 const DATA_FILE = path.join(__dirname, "shopping-list.json");
 
-// Helper: Load shopping list from file
+// Load and save helpers
 function loadShoppingList() {
   try {
     const data = fs.readFileSync(DATA_FILE, "utf8");
     return JSON.parse(data);
-  } catch (err) {
+  } catch {
     return [];
   }
 }
 
-// Helper: Save shopping list to file
 function saveShoppingList(list) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(list, null, 2));
 }
@@ -34,7 +33,7 @@ function formatList() {
   ).join("\n") || "No items on the list.";
 }
 
-// Slash command: /shopping
+// /shopping command
 app.command("/shopping", async ({ command, ack, respond }) => {
   await ack();
 
@@ -76,7 +75,7 @@ app.command("/shopping", async ({ command, ack, respond }) => {
   }
 });
 
-// Slash command: /shopping-ui
+// /shopping-ui command
 app.command("/shopping-ui", async ({ command, ack, respond }) => {
   await ack();
 
@@ -86,9 +85,9 @@ app.command("/shopping-ui", async ({ command, ack, respond }) => {
       : shoppingList.map((item, index) => ({
           type: "section",
           text: {
-  type: "mrkdwn",
-  text: `*${item.name}* — ${item.status} ${item.link ? `<${item.link}|Link>` : ""} ${item.updatedAt ? `(updated ${item.updatedAt} by ${item.updatedBy})` : ""}`,
-},
+            type: "mrkdwn",
+            text: `*${item.name}* — ${item.status} ${item.link ? `<${item.link}|Link>` : ""} ${item.updatedAt ? `(updated ${item.updatedAt} by ${item.updatedBy})` : ""}`,
+          },
           accessory: {
             type: "overflow",
             options: [
@@ -117,7 +116,7 @@ app.command("/shopping-ui", async ({ command, ack, respond }) => {
   await respond({ blocks, text: "Here’s the shopping list:" });
 });
 
-// Handle item button actions
+// Overflow menu actions
 app.action("item_action", async ({ ack, body, action, respond }) => {
   await ack();
 
@@ -131,7 +130,7 @@ app.action("item_action", async ({ ack, body, action, respond }) => {
     return;
   }
 
-  let item = shoppingList[index];
+  const item = shoppingList[index];
   let message;
 
   switch (actionType) {
@@ -194,7 +193,7 @@ app.action("open_add_item_modal", async ({ ack, body, client }) => {
   });
 });
 
-// Handle modal submission
+// Handle modal submit
 app.view("add_item_submit", async ({ ack, body, view, client }) => {
   await ack();
 
@@ -222,11 +221,7 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
   });
 });
 
-(async () => {
-  await app.start();
-  console.log("⚡️ Slack Shopping List App is running on port 3000");
-})();
-
+// Home tab view
 app.event("app_home_opened", async ({ event, client }) => {
   const blocks = [
     {
@@ -238,13 +233,14 @@ app.event("app_home_opened", async ({ event, client }) => {
           type: "section",
           text: { type: "mrkdwn", text: "The shopping list is empty." },
         }]
-      : shoppingList.map((item, index) => ({
+      : shoppingList.map((item) => ({
           type: "section",
           text: {
             type: "mrkdwn",
             text: `*${item.name}* — ${item.status} ${item.link ? `<${item.link}|Link>` : ""} ${item.updatedAt ? `(updated ${item.updatedAt} by ${item.updatedBy})` : ""}`,
           },
-        }))),
+        }))
+    ),
     {
       type: "actions",
       elements: [
@@ -267,3 +263,8 @@ app.event("app_home_opened", async ({ event, client }) => {
   });
 });
 
+// Start the app
+(async () => {
+  await app.start();
+  console.log("⚡️ Slack Shopping List App is running on port 3000");
+})();
