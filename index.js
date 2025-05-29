@@ -71,8 +71,7 @@ app.command("/shopping", async ({ command, ack, respond }) => {
       await respond(`Removed *${itemName}* from the list.`);
       break;
     case "list":
-      await respond(`🛒 *Shopping List:*
-${formatList()}`);
+      await respond(`🛒 *Shopping List:*\n${formatList()}`);
       break;
     default:
       await respond("Usage: `/shopping [add|check|uncheck|remove|list] [item name]`");
@@ -187,13 +186,11 @@ app.action(/item_action_\d+/, async ({ ack, body, action, respond }) => {
 
   saveShoppingList(shoppingList);
   const blocks = generateBlocks();
-  await app.client.views.publish({
-    user_id: body.user.id,
-    view: {
-      type: "home",
-      callback_id: "home_view",
-      blocks,
-    },
+
+  await respond({
+    replace_original: true,
+    blocks,
+    text: "Here’s the updated shopping list.",
   });
 
   await respond({ response_type: "ephemeral", text: message });
