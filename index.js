@@ -232,29 +232,61 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
 
 // Home tab view
 app.event("app_home_opened", async ({ event, client }) => {
-  const headerRow = "*Item*\u2003\u2003\u2003| *Link*\u2003\u2003| *Date*\u2003\u2003| *Who*\u2003\u2003| *Status*";
-
-  const itemRows = shoppingList.map(item => {
-  const dateOnly = item.updatedAt
-    ? new Date(item.updatedAt).toLocaleDateString()
-    : "—";
-  const link = item.link ? `<${item.link}|Link>` : "—";
-  const who = item.updatedBy || "—";
-  const status = item.status || "—";
-  const name = item.name || "—";
-
-  return `${name}\u2003\u2003\u2003| ${link}\u2003\u2003| ${dateOnly}\u2003\u2003| ${who}\u2003\u2003| ${status}`;
-});
-
-
   const blocks = [
     {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: "*🛒 Shopping List*\n\n" + [headerRow, ...itemRows].join("\n"),
-      },
+      type: "header",
+      text: { type: "plain_text", text: "🛒 Shopping List" },
     },
+    ...(shoppingList.length === 0
+      ? [{
+          type: "section",
+          text: { type: "mrkdwn", text: "The shopping list is empty." },
+        }]
+      : shoppingList.flatMap((item, index) => {
+          const dateOnly = item.updatedAt
+            ? new Date(item.updatedAt).toLocaleDateString()
+            : "—";
+          const link = item.link ? `<${item.link}|Link>` : "—";
+          const who = item.updatedBy || "—";
+          const status = item.status || "—";
+          const name = item.name || "—";
+
+          return [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `*${name}*\u2003\u2003| ${link}\u2003\u2003| ${dateOnly}\u2003\u2003| ${who}\u2003\u2003| ${status}`,
+              },
+            },
+            {
+              type: "actions",
+              elements: [
+                ...(item.status === "Needed"
+                  ? [{
+                      type: "button",
+                      text: { type: "plain_text", text: "✅ Mark as Purchased" },
+                      value: `check_${index}`,
+                      action_id: "item_action",
+                    }]
+                  : [{
+                      type: "button",
+                      text: { type: "plain_text", text: "🔄 Mark as Needed" },
+                      value: `uncheck_${index}`,
+                      action_id: "item_action",
+                    }]
+                ),
+                {
+                  type: "button",
+                  text: { type: "plain_text", text: "❌ Remove" },
+                  value: `remove_${index}`,
+                  action_id: "item_action",
+                },
+              ],
+            },
+          ];
+        })
+    ),
     {
       type: "actions",
       elements: [
