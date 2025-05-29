@@ -232,19 +232,20 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
 
 // Home tab view
 app.event("app_home_opened", async ({ event, client }) => {
-  const headerRow = "*Item* | *Link* | *Date* | *Who* | *Status*";
+  const headerRow = "*Item*\u2003\u2003\u2003| *Link*\u2003\u2003| *Date*\u2003\u2003| *Who*\u2003\u2003| *Status*";
 
   const itemRows = shoppingList.map(item => {
-    const dateOnly = item.updatedAt
-      ? new Date(item.updatedAt).toLocaleDateString()
-      : "—";
-    const link = item.link ? `<${item.link}|Link>` : "—";
-    const who = item.updatedBy || "—";
-    const status = item.status || "—";
-    const name = item.name || "—";
+  const dateOnly = item.updatedAt
+    ? new Date(item.updatedAt).toLocaleDateString()
+    : "—";
+  const link = item.link ? `<${item.link}|Link>` : "—";
+  const who = item.updatedBy || "—";
+  const status = item.status || "—";
+  const name = item.name || "—";
 
-    return `${name} | ${link} | ${dateOnly} | ${who} | ${status}`;
-  });
+  return `${name}\u2003\u2003\u2003| ${link}\u2003\u2003| ${dateOnly}\u2003\u2003| ${who}\u2003\u2003| ${status}`;
+});
+
 
   const blocks = [
     {
