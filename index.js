@@ -1,23 +1,22 @@
 const { App } = require("@slack/bolt");
 
-// Your existing shopping list data source or in-memory array
-let shoppingList = [
-  // Example item:
-  // { name: "Milk", status: "Needed", link: "https://example.com", updatedBy: null, updatedAt: null }
-];
+const app = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+});
 
-// Helper to save shopping list (implement as needed)
-function saveShoppingList(list) {
-  shoppingList = list;
-  // Persist to DB or file if you want
+let shoppingList = [];
+
+// Helper to format date nicely
+function formatDate(date) {
+  return new Date(date).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
-// Format ISO date to human-readable (simple)
-function formatDate(iso) {
-  const d = new Date(iso);
-  return d.toLocaleDateString() + " " + d.toLocaleTimeString();
-}
-
+// Generate blocks for the Home tab
 function generateBlocks() {
   const blocks = [
     {
@@ -33,12 +32,14 @@ function generateBlocks() {
     });
   } else {
     shoppingList.forEach((item, index) => {
-      const updatedText = item.updatedAt && item.updatedBy
-        ? `(updated ${formatDate(item.updatedAt)} by ${item.updatedBy})`
-        : "";
+      const updatedText =
+        item.updatedAt && item.updatedBy
+          ? `(updated ${formatDate(item.updatedAt)} by ${item.updatedBy})`
+          : "";
 
-      // Grey box for Needed, Green check for Purchased
-      const statusEmoji = item.status === "Purchased" ? ":white_check_mark:" : ":white_large_square:";
+      // Status emoji just for visual
+      const statusEmoji =
+        item.status === "Purchased" ? ":white_check_mark:" : ":white_large_square:";
 
       blocks.push({
         type: "section",
@@ -48,7 +49,6 @@ function generateBlocks() {
         },
       });
 
-      // Actions block below each item
       blocks.push({
         type: "actions",
         block_id: `actions_${index}`,
@@ -59,7 +59,8 @@ function generateBlocks() {
               type: "plain_text",
               text: item.status === "Purchased" ? "Mark as Needed" : "Mark as Purchased",
             },
-            style: item.status === "Purchased" ? "danger" : "primary",
+            // Reversed colors: Purchased button is green, Needed is grey
+            style: item.status === "Purchased" ? "primary" : "default",
             value: `${index}`,
             action_id: "toggle_status",
           },
@@ -76,7 +77,6 @@ function generateBlocks() {
         ],
       });
 
-      // Divider between items except last
       if (index < shoppingList.length - 1) {
         blocks.push({ type: "divider" });
       }
@@ -97,79 +97,55 @@ function generateBlocks() {
   return blocks;
 }
 
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  // Other configs...
-});
-
-app.event("app_home_opened", async ({ event, client }) => {
+// Update home tab for a user
+async function updateHomeTab(client, userId) {
   try {
     await client.views.publish({
-      user_id: event.user,
+      user_id: userId,
       view: {
         type: "home",
         blocks: generateBlocks(),
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error("Error publishing home tab:", error);
   }
+}
+
+// App home opened event — update the home tab
+app.event("app_home_opened", async ({ event, client }) => {
+  await updateHomeTab(client, event.user);
 });
 
+// Button: toggle status Purchased <-> Needed
 app.action("toggle_status", async ({ ack, body, action, client }) => {
   await ack();
-  const index = parseInt(action.value);
-  if (isNaN(index) || !shoppingList[index]) return;
 
-  const user = `<@${body.user.id}>`;
-  const timestamp = new Date().toISOString();
-
-  if (shoppingList[index].status === "Purchased") {
-    shoppingList[index].status = "Needed";
-  } else {
-    shoppingList[index].status = "Purchased";
+  const index = parseInt(action.value, 10);
+  if (shoppingList[index]) {
+    const item = shoppingList[index];
+    item.status = item.status === "Purchased" ? "Needed" : "Purchased";
+    item.updatedAt = new Date();
+    item.updatedBy = body.user.username || body.user.name || "unknown";
   }
-  shoppingList[index].updatedBy = user;
-  shoppingList[index].updatedAt = timestamp;
 
-  saveShoppingList(shoppingList);
-
-  try {
-    await client.views.publish({
-      user_id: body.user.id,
-      view: {
-        type: "home",
-        blocks: generateBlocks(),
-      },
-    });
-  } catch (error) {
-    console.error(error);
-  }
+  await updateHomeTab(client, body.user.id);
 });
 
-app.action("overflow_remove", async ({ ack, body, action, client }) => {
+// Overflow menu: Remove item
+app.action("overflow_remove", async ({ ack, action, body, client }) => {
   await ack();
-  const index = parseInt(action.selected_option.value);
-  if (isNaN(index) || !shoppingList[index]) return;
 
-  const removedItem = shoppingList.splice(index, 1)[0];
-  saveShoppingList(shoppingList);
-
-  try {
-    await client.views.publish({
-      user_id: body.user.id,
-      view: {
-        type: "home",
-        blocks: generateBlocks(),
-      },
-    });
-  } catch (error) {
-    console.error(error);
+  const index = parseInt(action.selected_option.value, 10);
+  if (shoppingList[index]) {
+    shoppingList.splice(index, 1);
   }
+
+  await updateHomeTab(client, body.user.id);
 });
 
-app.action("open_add_item_modal", async ({ ack, body, client }) => {
+// Open add item modal
+app.action("open_add_item_modal", async ({ ack, client, body }) => {
   await ack();
 
   try {
@@ -178,72 +154,81 @@ app.action("open_add_item_modal", async ({ ack, body, client }) => {
       view: {
         type: "modal",
         callback_id: "add_item_modal",
-        title: { type: "plain_text", text: "Add Item" },
-        submit: { type: "plain_text", text: "Add" },
-        close: { type: "plain_text", text: "Cancel" },
+        title: {
+          type: "plain_text",
+          text: "Add Item",
+        },
+        submit: {
+          type: "plain_text",
+          text: "Add",
+        },
+        close: {
+          type: "plain_text",
+          text: "Cancel",
+        },
         blocks: [
           {
             type: "input",
-            block_id: "item_name_block",
+            block_id: "name_block",
             element: {
               type: "plain_text_input",
-              action_id: "item_name_input",
+              action_id: "name_input",
               placeholder: { type: "plain_text", text: "Item name" },
             },
-            label: { type: "plain_text", text: "Item Name" },
+            label: {
+              type: "plain_text",
+              text: "Item Name",
+            },
           },
           {
             type: "input",
-            block_id: "item_link_block",
+            block_id: "link_block",
             optional: true,
             element: {
               type: "plain_text_input",
-              action_id: "item_link_input",
+              action_id: "link_input",
               placeholder: { type: "plain_text", text: "Optional link" },
             },
-            label: { type: "plain_text", text: "Link" },
+            label: {
+              type: "plain_text",
+              text: "Link",
+            },
           },
         ],
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error("Error opening modal:", error);
   }
 });
 
-app.view("add_item_modal", async ({ ack, body, view, client }) => {
+// Handle submission of add item modal
+app.view("add_item_modal", async ({ ack, view, body, client }) => {
   await ack();
 
-  const name = view.state.values.item_name_block.item_name_input.value;
-  const link = view.state.values.item_link_block?.item_link_input?.value || null;
-  if (!name) return;
+  const name = view.state.values.name_block.name_input.value;
+  const link = view.state.values.link_block.link_input.value;
+
+  if (!name) {
+    // Should never happen because input is required
+    return;
+  }
 
   shoppingList.push({
     name,
-    status: "Needed",
     link,
-    updatedBy: `<@${body.user.id}>`,
-    updatedAt: new Date().toISOString(),
+    status: "Needed",
+    updatedAt: new Date(),
+    updatedBy: body.user.username || body.user.name || "unknown",
   });
 
-  saveShoppingList(shoppingList);
-
-  try {
-    await client.views.publish({
-      user_id: body.user.id,
-      view: {
-        type: "home",
-        blocks: generateBlocks(),
-      },
-    });
-  } catch (error) {
-    console.error(error);
-  }
+  await updateHomeTab(client, body.user.id);
 });
 
-// Start your app
 (async () => {
   const port = process.env.PORT || 3000;
+
   await app.start(port);
-  console.log(`⚡️ Bolt app is running on port ${port}`);
+
+  console.log(`⚡️ Slack Bolt app is running on port ${port}!`);
 })();
