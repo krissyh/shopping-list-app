@@ -28,9 +28,18 @@ const app = new App({
 let shoppingList = loadShoppingList();
 
 function formatList() {
-  return shoppingList.map(item =>
-    `• *${item.name}* — ${item.status} ${item.link ? `<${item.link}|View>` : ""} ${item.updatedAt ? `(updated ${item.updatedAt} by ${item.updatedBy})` : ""}`
-  ).join("\n") || "No items on the list.";
+  return shoppingList.map(item => {
+    const dateOnly = item.updatedAt
+      ? new Date(item.updatedAt).toLocaleDateString()
+      : "—";
+    
+    const link = item.link ? `<${item.link}|Link>` : "—";
+    const who = item.updatedBy || "—";
+    const status = item.status || "—";
+    const name = item.name || "—";
+
+    return `• *${name}* | ${link} | ${dateOnly} | ${who} | ${status}`;
+  }).join("\n") || "No items on the list.";
 }
 
 // /shopping command
