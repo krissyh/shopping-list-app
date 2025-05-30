@@ -5,7 +5,6 @@ require("dotenv").config();
 
 const DATA_FILE = path.join(__dirname, "shopping-list.json");
 
-// Load/save shopping list from JSON file
 function loadShoppingList() {
   try {
     const data = fs.readFileSync(DATA_FILE, "utf8");
@@ -28,9 +27,6 @@ const app = new App({
 });
 
 let shoppingList = loadShoppingList();
-
-// Keep track of users who opened the Home tab
-const activeUsers = new Set();
 
 function formatDate(dateTime) {
   if (!dateTime) return "Unknown date";
@@ -118,28 +114,26 @@ function generateBlocks() {
   return blocks;
 }
 
-// Helper: Update Home tab for all active users
 async function updateAllHomeTabs(client) {
-  const blocks = generateBlocks();
+  const userIds = new Set(shoppingList.map(item => item.updatedBy.replace(/[<@>]/g, "")));
 
-  for (const userId of activeUsers) {
+  for (const userId of userIds) {
     try {
       await client.views.publish({
         user_id: userId,
         view: {
           type: "home",
           callback_id: "home_view",
-          blocks,
+          blocks: generateBlocks(),
         },
       });
     } catch (err) {
-      console.error(`Failed to update home tab for ${userId}:`, err);
+      console.error(`Error publishing home tab for ${userId}:`, err);
     }
   }
 }
 
-// Slash command: /shopping
-app.command("/shopping", async ({ command, ack, respond, client }) => {
+app.command("/shopping", async ({ command, ack, respond }) => {
   await ack();
 
   const [action, ...itemParts] = command.text.trim().split(" ");
@@ -149,53 +143,39 @@ app.command("/shopping", async ({ command, ack, respond, client }) => {
 
   switch (action) {
     case "add":
-      if (!itemName) {
-        await respond("Please provide an item name to add.");
-        return;
-      }
+      if (!itemName) return await respond("Please provide an item name to add.");
       shoppingList.push({ name: itemName, status: "Needed", updatedBy: user, updatedAt: timestamp });
-      saveShoppingList(shoppingList);
-      await respond(`Added *${itemName}* to the shopping list.`);
       break;
     case "check":
       shoppingList = shoppingList.map(item =>
         item.name === itemName ? { ...item, status: "Purchased", updatedBy: user, updatedAt: timestamp } : item
       );
-      saveShoppingList(shoppingList);
-      await respond(`Marked *${itemName}* as purchased.`);
       break;
     case "uncheck":
       shoppingList = shoppingList.map(item =>
         item.name === itemName ? { ...item, status: "Needed", updatedBy: user, updatedAt: timestamp } : item
       );
-      saveShoppingList(shoppingList);
-      await respond(`Marked *${itemName}* as needed again.`);
       break;
     case "remove":
       shoppingList = shoppingList.filter(item => item.name !== itemName);
-      saveShoppingList(shoppingList);
-      await respond(`Removed *${itemName}* from the list.`);
       break;
     case "list":
-      await respond(`🛒 *Shopping List:*\n${shoppingList.length ? shoppingList.map(i => `• *${i.name}* — ${i.status}`).join("\n") : "No items on the list."}`);
-      break;
+      return await respond(`🛒 *Shopping List:*\n${shoppingList.length ? shoppingList.map(i => `• *${i.name}* — ${i.status}`).join("\n") : "No items on the list."}`);
     default:
-      await respond("Usage: `/shopping [add|check|uncheck|remove|list] [item name]`");
+      return await respond("Usage: `/shopping [add|check|uncheck|remove|list] [item name]`");
   }
 
-  // Publish updated home tab to all users
-  await updateAllHomeTabs(client);
+  saveShoppingList(shoppingList);
+  await respond(`Updated shopping list.`);
+  await updateAllHomeTabs(app.client);
 });
 
-// Slash command: /shopping-ui
 app.command("/shopping-ui", async ({ command, ack, respond }) => {
   await ack();
-
-  const blocks = generateBlocks();
-  await respond({ blocks, text: "Here’s the shopping list:" });
+  await respond({ blocks: generateBlocks(), text: "Here’s the shopping list:" });
 });
 
-app.action(/item_action_\d+/, async ({ ack, body, action, respond, client }) => {
+app.action(/item_action_\d+/, async ({ ack, body, action, client }) => {
   await ack();
 
   const user = `<@${body.user.id}>`;
@@ -204,55 +184,38 @@ app.action(/item_action_\d+/, async ({ ack, body, action, respond, client }) => 
   const [actionType, indexStr] = action.selected_option.value.split("_");
   const index = parseInt(indexStr, 10);
 
-  if (isNaN(index) || !shoppingList[index]) {
-    await respond({ text: "Invalid item index.", replace_original: false });
-    return;
-  }
+  if (isNaN(index) || !shoppingList[index]) return;
 
   let message = "";
   let item = shoppingList[index];
 
   switch (actionType) {
     case "toggle":
-      if (item.status === "Needed") {
-        item.status = "Purchased";
-        message = `✅ Marked *${item.name}* as purchased.`;
-      } else {
-        item.status = "Needed";
-        message = `🔄 Marked *${item.name}* as needed again.`;
-      }
+      item.status = item.status === "Needed" ? "Purchased" : "Needed";
       item.updatedBy = user;
       item.updatedAt = timestamp;
+      message = `Updated *${item.name}* to *${item.status}*.`;
       break;
     case "remove":
       shoppingList.splice(index, 1);
-      message = `❌ Removed *${item.name}* from the list.`;
+      message = `Removed *${item.name}* from the list.`;
       break;
     default:
-      message = "Unknown action.";
+      return;
   }
 
   saveShoppingList(shoppingList);
 
-  // Update message with new list
-  const blocks = generateBlocks();
-  await respond({
-    replace_original: true,
-    blocks,
-    text: "Here’s the updated shopping list.",
-  });
-
-  // Send ephemeral confirmation message
-  const channelId = body.channel?.id || (body.message && body.message.channel?.id);
-  if (channelId) {
+  try {
     await client.chat.postEphemeral({
-      channel: channelId,
+      channel: body.user.id,
       user: body.user.id,
       text: message,
     });
+  } catch (e) {
+    console.error("Failed to send ephemeral message:", e);
   }
 
-  // Update home tab for all users
   await updateAllHomeTabs(client);
 });
 
@@ -312,25 +275,21 @@ app.view("add_item_submit", async ({ ack, body, view, client }) => {
     text: `Added *${itemName}* to the shopping list.`,
   });
 
-  // Update home tab for all users
   await updateAllHomeTabs(client);
 });
 
 app.event("app_home_opened", async ({ event, client }) => {
-  activeUsers.add(event.user);
-
-  const blocks = generateBlocks();
   await client.views.publish({
     user_id: event.user,
     view: {
       type: "home",
       callback_id: "home_view",
-      blocks,
+      blocks: generateBlocks(),
     },
   });
 });
 
 (async () => {
   await app.start();
-  console.log("⚡️ Slack app is running!");
+  console.log("⚡️ Slack Shopping List App is running");
 })();
